@@ -1,0 +1,8 @@
+# 中间产物 / 不需要进仓库的文件
+tools/
+scripts/
+frames/
+frames_png/
+person_sheet.png
+MJ聊天.html
+*.log

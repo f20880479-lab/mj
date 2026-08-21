@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>抖音 · 聊天</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+    background:#0b0d12; color:#fff;
+    display:flex; justify-content:center;
+  }
+  .app {
+    width:100%; max-width:430px; height:100%;
+    display:flex; flex-direction:column; position:relative; overflow:hidden;
+    background:linear-gradient(180deg,#1a1e28 0%, #14171f 100%);
+    box-shadow:0 0 60px rgba(0,0,0,.6);
+  }
+  header {
+    display:flex; align-items:center; gap:10px;
+    padding:12px 14px; z-index:5;
+    background:rgba(20,23,31,.94);
+    border-bottom:1px solid rgba(255,255,255,.06);
+  }
+  header .back { font-size:21px; color:#fff; cursor:pointer; padding:2px 6px; user-select:none; }
+  header .avatar {
+    width:38px; height:38px; border-radius:50%; flex-shrink:0;
+    background:linear-gradient(135deg,#36d1dc,#5b86e5);
+    display:flex; align-items:center; justify-content:center; font-size:20px;
+  }
+  header .info { flex:1; line-height:1.35; }
+  header .info .name { font-size:16px; font-weight:600; }
+  header .info .status { font-size:11px; color:#8b93a5; }
+  header .icons { display:flex; gap:15px; font-size:17px; color:#cfd6e4; }
+  #chat {
+    flex:1; overflow-y:auto; padding:16px 14px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  .msg { display:flex; gap:8px; max-width:82%; animation:pop .18s ease; }
+  .msg.me { align-self:flex-end; flex-direction:row-reverse; }
+  .msg .avatar {
+    width:32px; height:32px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:16px;
+  }
+  .msg.friend .avatar { background:linear-gradient(135deg,#36d1dc,#5b86e5); }
+  .msg.me .avatar { background:linear-gradient(135deg,#f857a6,#ff5858); }
+  .bubble {
+    padding:9px 13px; border-radius:16px; font-size:15px; line-height:1.55;
+    word-break:break-word; white-space:pre-wrap;
+  }
+  .msg.friend .bubble { background:#2a3040; color:#f2f4f8; border-top-left-radius:5px; }
+  .msg.me .bubble { background:linear-gradient(135deg,#fe2c55,#ff5a78); color:#fff; border-top-right-radius:5px; }
+  .msg .bubble.video-bubble { padding:5px; }
+  .msg .bubble.video-bubble video {
+    display:block; width:min(62vw,280px); max-height:300px;
+    border-radius:11px; background:#000;
+  }
+  .typing-bubble { display:flex; gap:5px; align-items:center; padding:15px 14px; }
+  .typing-bubble span { width:7px; height:7px; border-radius:50%; background:#9aa3b5; animation:blink 1s infinite; }
+  .typing-bubble span:nth-child(2){ animation-delay:.18s; }
+  .typing-bubble span:nth-child(3){ animation-delay:.36s; }
+  @keyframes blink { 0%,80%,100%{opacity:.25; transform:translateY(0)} 40%{opacity:1; transform:translateY(-3px)} }
+  @keyframes pop { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  footer {
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(20,23,31,.96); border-top:1px solid rgba(255,255,255,.06);
+    display:flex; align-items:center; gap:8px; z-index:5;
+  }
+  footer .smile { font-size:21px; color:#8b93a5; padding:2px 6px; user-select:none; }
+  #input {
+    flex:1; padding:10px 14px; border-radius:20px; border:none; outline:none;
+    background:#262c3a; color:#fff; font-size:15px;
+  }
+  #input::placeholder { color:#6b7280; }
+  #send {
+    width:38px; height:38px; border-radius:50%; border:none; cursor:pointer; flex-shrink:0;
+    background:linear-gradient(135deg,#fe2c55,#ff5a78); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    transition:filter .15s;
+  }
+  #send:hover { filter:brightness(1.12); }
+  #send:active { transform:scale(.94); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <span class="back">‹</span>
+      <div class="avatar">😎</div>
+      <div class="info">
+        <div class="name">小宇</div>
+        <div class="status">在线</div>
+      </div>
+      <div class="icons"><span>📞</span><span>📹</span><span>⋯</span></div>
+    </header>
+
+    <div id="chat"></div>
+
+    <footer>
+      <span class="smile">😊</span>
+      <input id="input" placeholder="发个消息吧…" autocomplete="off">
+      <button id="send" title="发送">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 8l11-5-3.2 9L7 9.5 2 8z" fill="#fff"/>
+        </svg>
+      </button>
+    </footer>
+  </div>
+
+<script>
+  /* 视频与 HTML 放在同一文件夹，可随时替换成别的视频 */
+  var VIDEO_SRC = '8月21日.mp4';
+
+  var chat = document.getElementById('chat');
+  var input = document.getElementById('input');
+
+  function scrollBottom(){ chat.scrollTop = chat.scrollHeight; }
+  function esc(s){ var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function addMsg(who, text){
+    var div = document.createElement('div');
+    div.className = 'msg ' + who;
+    div.innerHTML = '<div class="avatar">' + (who === 'me' ? '&#129398;' : '&#128526;') + '</div>'
+                  + '<div class="bubble">' + esc(text) + '</div>';
+    chat.appendChild(div);
+    scrollBottom();
+  }
+  function addTyping(){
+    var div = document.createElement('div');
+    div.className = 'msg friend';
+    div.innerHTML = '<div class="avatar">&#128526;</div><div class="bubble typing-bubble"><span></span><span></span><span></span></div>';
+    chat.appendChild(div);
+    scrollBottom();
+    return div;
+  }
+  /* 好友发来视频消息并自动播放 */
+  function addVideoMsg(){
+    var div = document.createElement('div');
+    div.className = 'msg friend';
+    div.innerHTML = '<div class="avatar">&#128526;</div>'
+                  + '<div class="bubble video-bubble"><video src="' + VIDEO_SRC + '" controls playsinline></video></div>';
+    chat.appendChild(div);
+    scrollBottom();
+    var v = div.querySelector('video');
+    if (v) { v.play()['catch'](function(){}); }
+  }
+
+  /* 对方回复 mj */
+  function replyMj(){
+    var t = addTyping();
+    setTimeout(function(){ t.remove(); addMsg('friend', 'mj'); }, 550 + Math.random() * 400);
+  }
+  /* 发视频：先"正在输入"，然后发来视频 */
+  function sendVideo(){
+    var t = addTyping();
+    setTimeout(function(){ t.remove(); addVideoMsg(); }, 600);
+  }
+
+  function send(){
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('me', text);
+    if (text.toLowerCase() === 'mj'){
+      sendVideo();
+    } else {
+      replyMj();
+    }
+  }
+
+  document.getElementById('send').onclick = send;
+  input.addEventListener('keydown', function(e){ if (e.key === 'Enter') send(); });
+  input.focus();
+</script>
+</body>
+</html>
