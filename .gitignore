@@ -3,8 +3,14 @@ work/
 .dsh-vision-toolkit/
 tools/
 scripts/
-frames/
+/frames/
 frames_png/
 person_sheet.png
 MJ聊天.html
 *.log
+
+蜘蛛侠特效/
+桌面特效/dist/
+桌面特效/build/
+桌面特效/*.spec
+
