@@ -2,11 +2,12 @@
 """
 蜘蛛侠桌面特效（窗口版）
 - 主控制窗口（深色面板）：特效开关按钮；关闭窗口即退出程序（无论开关状态）
-- 全局监听键盘：输入 mj 后按回车 → 屏幕正上方播放透明蜘蛛侠（带声音，约 2.8 秒）
+- 全局监听键盘：输入 mj 后按回车 → 屏幕正上方播放透明蜘蛛侠（带声音）
+- 双特效随机：内置两个蜘蛛侠动画（原版倒挂 / 荡蛛丝版），每次触发随机抽取一个播放
 - 持续生效：应用常驻，无论触发多少次都重播；播放中再触发会先清掉旧画面声音再从头播
 - 透明实现：Win32 UpdateLayeredWindow（逐像素 alpha），参考 desk-pet 项目方案
 """
-import os, sys, time, queue, ctypes
+import os, sys, time, queue, random, ctypes
 from ctypes import wintypes
 import tkinter as tk
 import winsound
@@ -40,16 +41,22 @@ else:
     HERE = os.path.dirname(os.path.abspath(__file__))
     LOG = os.path.join(HERE, 'effect.log')
 
-FRAME_DIR = os.path.join(HERE, 'frames')
-FRAME_FIRST = 12
-FRAME_LAST = 177
-WAV = os.path.join(HERE, 'audio.wav')
 ICON = os.path.join(HERE, 'icon.ico')
 TRIGGER = 'mj'
 QUIT_WORD = 'stopmj'
-FRAMES = 166
-FPS = 60
-CELL_W, CELL_H = 434, 720
+
+# ===== 特效库：每次输入 mj 从里面随机抽取一个播放 =====
+EFFECTS = [
+    # 原版：倒挂 Q 版蜘蛛侠（8月21日.mp4 抠图，60fps，166 帧）
+    dict(name='原版蜘蛛侠', dir=os.path.join(HERE, 'frames'),
+         first=12, count=166, fps=60, cell=(434, 720),
+         wav=os.path.join(HERE, 'audio.wav')),
+    # 新版：荡蛛丝 Q 版蜘蛛侠（8月24日.mp4 抠图，30fps，80 帧，抖音水印已去除；
+    # 帧已统一缩放到 720x720，与原版人物同高，两个特效视觉大小一致）
+    dict(name='荡蛛丝蜘蛛侠', dir=os.path.join(HERE, 'frames2'),
+         first=4, count=80, fps=30, cell=(720, 720),
+         wav=os.path.join(HERE, 'audio2.wav')),
+]
 
 # 主窗口配色（深色蜘蛛侠主题）
 BG = '#14171f'
@@ -190,10 +197,6 @@ anim_id = 0
 enabled_flag = True   # 特效开关（普通布尔，pynput 线程安全读取）
 
 
-def frame_path(i):
-    return os.path.join(FRAME_DIR, 'f%04d.png' % (FRAME_FIRST + i))
-
-
 def log(msg):
     try:
         with open(LOG, 'a', encoding='utf-8') as f:
@@ -228,13 +231,14 @@ def on_press(key):
 root = tk.Tk()
 sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
 
-# 缩放：小屏幕缩小特效帧
-scale = 2 if sh - 80 < CELL_H else 1
-FW, FH = CELL_W, CELL_H
-if scale == 2:
-    FW, FH = CELL_W // scale, CELL_H // scale
-# 蜘蛛侠出现在屏幕正上方
-WIN_X, WIN_Y = (sw - FW) // 2, 20
+# 缩放：小屏幕缩小特效帧；蜘蛛侠出现在屏幕正上方（按每个特效自己的尺寸计算）
+def effect_geometry(eff):
+    cw, ch = eff['cell']
+    sc = 2 if sh - 80 < ch else 1
+    fw, fh = cw // sc, ch // sc
+    return fw, fh, (sw - fw) // 2, 20
+
+FW, FH, WIN_X, WIN_Y = effect_geometry(EFFECTS[0])
 
 # ---- 特效窗口（UpdateLayeredWindow，透明）----
 win = tk.Toplevel(root)
@@ -245,8 +249,7 @@ win.update_idletasks()
 win.update()
 hwnd = int(win.wm_frame(), 16) if isinstance(win.wm_frame(), str) else win.wm_frame()
 layered = LayeredWindow(hwnd)
-BLANK = Image.new('RGBA', (FW, FH), (0, 0, 0, 0))
-layered.update(BLANK, WIN_X, WIN_Y)
+layered.update(Image.new('RGBA', (FW, FH), (0, 0, 0, 0)), WIN_X, WIN_Y)
 
 
 def force_topmost():
@@ -257,18 +260,21 @@ def force_topmost():
         pass
 
 
-def show_effect():
+def show_effect(eff):
+    """播放一个特效（eff 来自 EFFECTS，每次触发随机抽取）"""
     global anim_id
     my_id = anim_id
-    log('effect trigger')
-    layered.update(BLANK, WIN_X, WIN_Y)
+    fw, fh, wx, wy = effect_geometry(eff)
+    blank = Image.new('RGBA', (fw, fh), (0, 0, 0, 0))
+    log('effect trigger: %s' % eff['name'])
+    layered.update(blank, wx, wy)
     try:
         winsound.PlaySound(None, winsound.SND_PURGE)
     except Exception:
         pass
     force_topmost()
     try:
-        winsound.PlaySound(WAV, winsound.SND_FILENAME | winsound.SND_ASYNC)
+        winsound.PlaySound(eff['wav'], winsound.SND_FILENAME | winsound.SND_ASYNC)
     except Exception:
         pass
     start = time.time()
@@ -278,20 +284,21 @@ def show_effect():
         nonlocal last_frame
         if my_id != anim_id:
             return
-        i = int((time.time() - start) * FPS)
-        if i >= FRAMES:
-            layered.update(BLANK, WIN_X, WIN_Y)
+        i = int((time.time() - start) * eff['fps'])
+        if i >= eff['count']:
+            layered.update(blank, wx, wy)
             return
         if i != last_frame:
             last_frame = i
             try:
-                img = Image.open(frame_path(i)).convert('RGBA')
-                if scale == 2:
-                    img = img.resize((FW, FH), Image.Resampling.BILINEAR)
-                layered.update(img, WIN_X, WIN_Y)
+                path = os.path.join(eff['dir'], 'f%04d.png' % (eff['first'] + i))
+                img = Image.open(path).convert('RGBA')
+                if (fw, fh) != eff['cell']:
+                    img = img.resize((fw, fh), Image.Resampling.BILINEAR)
+                layered.update(img, wx, wy)
             except Exception as e:
                 log('frame %d: %s' % (i, e))
-                layered.update(BLANK, WIN_X, WIN_Y)
+                layered.update(blank, wx, wy)
                 return
         root.after(8, step)
 
@@ -303,7 +310,7 @@ def poll():
         while True:
             m = q.get_nowait()
             if m == 'go':
-                show_effect()
+                show_effect(random.choice(EFFECTS))
             elif m == 'quit':
                 on_close()
                 return
@@ -378,7 +385,16 @@ listener.daemon = True
 listener.start()
 log('app started')
 if '--test' in sys.argv:
-    root.after(2500, show_effect)
+    # --test 随机触发一次；--test 0 / --test 1 强制指定特效（便于逐一验证）
+    idx = None
+    try:
+        p = sys.argv.index('--test')
+        if p + 1 < len(sys.argv) and sys.argv[p + 1] in ('0', '1'):
+            idx = int(sys.argv[p + 1])
+    except ValueError:
+        pass
+    eff = EFFECTS[idx] if idx is not None else random.choice(EFFECTS)
+    root.after(2500, lambda: show_effect(eff))
 root.after(50, poll)
 root.mainloop()
 log('app exited')
